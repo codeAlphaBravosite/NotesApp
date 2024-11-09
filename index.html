@@ -2,80 +2,298 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Simple Notes App</title>
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400&display=swap" rel="stylesheet">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Notes</title>
+    <!-- Noto Sans supports both Latin and Devanagari scripts excellently -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {
             --bg-color: #ffffff;
-            --text-color: #333333;
-            --light-gray: #f5f6fa;
-            --shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            --text-color: #2c3e50;
+            --placeholder-color: #95a5a6;
+            --save-success: #2ecc71;
+            --save-error: #e74c3c;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg-color: #1a1a1a;
+                --text-color: #ecf0f1;
+                --placeholder-color: #7f8c8d;
+            }
         }
 
         * {
-            box-sizing: border-box;
             margin: 0;
             padding: 0;
+            box-sizing: border-box;
         }
 
         body, html {
-            font-family: 'Roboto', sans-serif;
             height: 100%;
+            font-family: 'Noto Sans', -apple-system, BlinkMacSystemFont, sans-serif;
             background-color: var(--bg-color);
             color: var(--text-color);
+            overflow: hidden;
         }
 
-        .container {
-            display: flex;
-            flex-direction: column;
-            height: 100%;
-            max-width: 1000px;
-            margin: auto;
-            padding: 2rem;
-        }
-
-        #text-input {
-            flex-grow: 1;
+        #editor {
             width: 100%;
-            padding: 1.5rem;
+            height: 100%;
+            padding: 24px;
+            font-size: 20px;
+            line-height: 1.7;
             border: none;
-            font-size: 1rem;
-            background-color: var(--light-gray);
-            border-radius: 12px;
             resize: none;
-            box-shadow: var(--shadow);
-            height: 70vh; /* Adjust height as needed */
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            caret-color: #3498db;
+            -webkit-overflow-scrolling: touch;
+            font-family: inherit;
+            letter-spacing: 0.01em;
+            text-rendering: optimizeLegibility;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
         }
 
-        #text-input:focus {
+        #editor:focus {
             outline: none;
+        }
+
+        #editor::placeholder {
+            color: var(--placeholder-color);
+            opacity: 0.7;
+        }
+
+        .status-indicator {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            opacity: 0;
+            transform: translateY(-10px);
+            transition: all 0.3s ease;
+            z-index: 1000;
+            pointer-events: none;
+        }
+
+        #save-indicator {
+            background-color: var(--save-success);
+            color: white;
+        }
+
+        #error-indicator {
+            background-color: var(--save-error);
+            color: white;
+        }
+
+        .status-indicator.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        #word-count {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            font-size: 12px;
+            color: var(--placeholder-color);
+            opacity: 0.7;
+            pointer-events: none;
+        }
+
+        /* Handle larger screens */
+        @media (min-width: 1024px) {
+            #editor {
+                max-width: 900px;
+                margin: 0 auto;
+                padding: 40px;
+                font-size: 22px;
+            }
+        }
+
+        /* Mobile optimizations */
+        @media (max-width: 768px) {
+            #editor {
+                padding: 20px;
+                font-size: 18px;
+            }
+
+            .status-indicator {
+                top: auto;
+                bottom: 20px;
+                font-size: 12px;
+                padding: 6px 12px;
+            }
+
+            #word-count {
+                bottom: 10px;
+                left: 20px;
+                right: auto;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <textarea id="text-input" placeholder="Start typing..." aria-label="Text input area"></textarea>
-    </div>
+    <textarea id="editor" placeholder="Start writing..." spellcheck="true" autocomplete="off" autocapitalize="on"></textarea>
+    <div id="save-indicator" class="status-indicator">Saved</div>
+    <div id="error-indicator" class="status-indicator">Unable to save</div>
+    <div id="word-count"></div>
 
     <script>
-        const textInput = document.getElementById('text-input');
+        const editor = document.getElementById('editor');
+        const saveIndicator = document.getElementById('save-indicator');
+        const errorIndicator = document.getElementById('error-indicator');
+        const wordCount = document.getElementById('word-count');
+        let saveTimeout;
+        let lastSavedContent = '';
+        const MAX_CONTENT_LENGTH = 1000000; // 1MB limit for localStorage
 
         // Load saved content
+        function loadContent() {
+            try {
+                const savedContent = localStorage.getItem('notes-content');
+                if (savedContent) {
+                    editor.value = savedContent;
+                    lastSavedContent = savedContent;
+                }
+
+                const cursorPosition = localStorage.getItem('notes-cursor-position');
+                if (cursorPosition) {
+                    editor.selectionStart = parseInt(cursorPosition);
+                    editor.selectionEnd = parseInt(cursorPosition);
+                }
+
+                if (editor.value) {
+                    editor.selectionStart = editor.value.length;
+                    editor.selectionEnd = editor.value.length;
+                    updateWordCount();
+                }
+            } catch (error) {
+                showError('Error loading content');
+            }
+        }
+
+        // Save content with debounce and error handling
+        function saveContent() {
+            clearTimeout(saveTimeout);
+            saveTimeout = setTimeout(() => {
+                try {
+                    if (editor.value === lastSavedContent) return; // Don't save if content hasn't changed
+                    if (editor.value.length > MAX_CONTENT_LENGTH) {
+                        showError('Content too large to save');
+                        return;
+                    }
+
+                    localStorage.setItem('notes-content', editor.value);
+                    localStorage.setItem('notes-cursor-position', editor.selectionStart.toString());
+                    lastSavedContent = editor.value;
+                    
+                    showSaveSuccess();
+                } catch (error) {
+                    showError('Unable to save');
+                    console.error('Save error:', error);
+                }
+            }, 300);
+        }
+
+        // Status indicators
+        function showSaveSuccess() {
+            saveIndicator.classList.add('show');
+            setTimeout(() => {
+                saveIndicator.classList.remove('show');
+            }, 1000);
+        }
+
+        function showError(message) {
+            errorIndicator.textContent = message;
+            errorIndicator.classList.add('show');
+            setTimeout(() => {
+                errorIndicator.classList.remove('show');
+            }, 3000);
+        }
+
+        // Word count function
+        function updateWordCount() {
+            const words = editor.value.trim().split(/[\s\u0964]+/).filter(word => word.length > 0).length;
+            wordCount.textContent = `${words} words`;
+        }
+
+        // Emergency backup
+        function createEmergencyBackup() {
+            try {
+                const timestamp = new Date().toISOString();
+                localStorage.setItem(`notes-backup-${timestamp}`, editor.value);
+                // Keep only last 5 backups
+                const backups = Object.keys(localStorage).filter(key => key.startsWith('notes-backup-')).sort();
+                while (backups.length > 5) {
+                    localStorage.removeItem(backups.shift());
+                }
+            } catch (error) {
+                console.error('Backup failed:', error);
+            }
+        }
+
+        // Event listeners
+        editor.addEventListener('input', () => {
+            saveContent();
+            updateWordCount();
+        });
+
+        editor.addEventListener('keyup', saveContent);
+        editor.addEventListener('mouseup', () => {
+            localStorage.setItem('notes-cursor-position', editor.selectionStart.toString());
+        });
+
+        // Create emergency backup every 5 minutes
+        setInterval(createEmergencyBackup, 5 * 60 * 1000);
+
+        // Handle mobile keyboard
+        window.addEventListener('resize', () => {
+            document.documentElement.style.height = `${window.innerHeight}px`;
+        });
+
+        // Initialize
         window.addEventListener('load', () => {
-            const savedText = localStorage.getItem('savedText');
-            if (savedText) {
-                textInput.value = savedText;
+            loadContent();
+            editor.focus();
+        });
+
+        // Save before leaving
+        window.addEventListener('beforeunload', (e) => {
+            if (editor.value !== lastSavedContent) {
+                createEmergencyBackup();
+                saveContent();
+                e.preventDefault();
+                e.returnValue = '';
             }
         });
 
-        // Auto-save functionality
-        let autoSaveTimer;
-        textInput.addEventListener('input', () => {
-            clearTimeout(autoSaveTimer);
-            autoSaveTimer = setTimeout(() => {
-                localStorage.setItem('savedText', textInput.value);
-            }, 1000); // Save after 1 second of inactivity
+        // Prevent accidental back navigation
+        window.addEventListener('popstate', (e) => {
+            e.preventDefault();
+            window.history.pushState(null, null, window.location.pathname);
+        });
+
+        // Handle visibility change (tab switching)
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                createEmergencyBackup();
+                saveContent();
+            }
+        });
+
+        // Push initial state
+        window.history.pushState(null, null, window.location.pathname);
+
+        // Handle Ctrl+S
+        document.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                e.preventDefault();
+                saveContent();
+            }
         });
     </script>
 </body>
