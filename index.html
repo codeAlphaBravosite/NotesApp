@@ -6,6 +6,13 @@
     <title>Notes</title>
     <!-- Noto Sans supports both Latin and Devanagari scripts excellently -->
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500&display=swap" rel="stylesheet">
+
+    <link rel="icon" href="icon-192x192.png" type="image/png">
+<link rel="shortcut icon" href="icon-192x192.png" type="image/png">
+<link rel="apple-touch-icon" href="icon-192x192.png">
+
+    <link rel="manifest" href="manifest.webmanifest">
+    
     <style>
         :root {
             --bg-color: #ffffff;
@@ -138,7 +145,7 @@
 </head>
 <body>
     <textarea id="editor" placeholder="Start writing..." spellcheck="true" autocomplete="off" autocapitalize="on"></textarea>
-    <div id="save-indicator" class="status-indicator">Saved</div>
+    <div id="save-indicator" class="status-indicator"></div>
     <div id="error-indicator" class="status-indicator">Unable to save</div>
     <div id="word-count"></div>
 
@@ -296,5 +303,20 @@
             }
         });
     </script>
+
+    <script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js')
+        .then(registration => {
+          console.log('Service Worker registered successfully:', registration.scope);
+        })
+        .catch(error => {
+          console.log('Service Worker registration failed:', error);
+        });
+    });
+  }
+    </script>
+    
 </body>
 </html>
